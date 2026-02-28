@@ -506,10 +506,21 @@ def check_health():
         return False, str(e)[:60]
 
 
+def warmup_backend():
+    """Preload ML models on first load to avoid timeout."""
+    try:
+        r = requests.get(f"{get_base()}/warmup", timeout=120)
+        if r.status_code == 200:
+            return True
+    except Exception as e:
+        pass
+    return False
+
+
 def call_analyze(text, max_retries=3):
     for attempt in range(1, max_retries+1):
         try:
-            r = requests.post(f"{get_base()}/analyze", json={"text": text}, timeout=90)
+            r = requests.post(f"{get_base()}/analyze", json={"text": text}, timeout=120)
             r.raise_for_status()
             return r.json()
         except requests.exceptions.ConnectionError as e:
@@ -524,7 +535,7 @@ def call_analyze(text, max_retries=3):
                 st.warning(f"⚠ Timeout on attempt {attempt}/{max_retries}, retrying…")
                 time.sleep(2)
             else:
-                raise TimeoutError("Backend timed out. Try again or restart the backend.")
+                raise TimeoutError("Backend timed out. Models may be loading. Try again or check backend logs.")
         except requests.exceptions.HTTPError as e:
             raise e
 
@@ -533,9 +544,14 @@ def call_analyze(text, max_retries=3):
 
 def main():
     for k, v in [("api_host", API_HOST), ("api_port", API_PORT),
-                 ("text_input",""), ("last_result", None)]:
+                 ("text_input",""), ("last_result", None), ("warmed_up", False)]:
         if k not in st.session_state:
             st.session_state[k] = v
+
+    # Warmup backend on first load to preload ML models
+    if not st.session_state["warmed_up"]:
+        with st.spinner("⚡ First time initialization — preloading ML models (30–60s, happens once)…"):
+            st.session_state["warmed_up"] = warmup_backend()
 
     render_header()
 

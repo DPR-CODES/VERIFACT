@@ -797,6 +797,28 @@ async def health():
     }
 
 
+@app.get("/warmup")
+async def warmup():
+    """Pre-load all ML models to avoid timeout on first /analyze request."""
+    loop = asyncio.get_event_loop()
+    logger.info("Starting warmup - loading all models...")
+    try:
+        await loop.run_in_executor(None, get_bert)
+        logger.info("✓ BERT loaded")
+        await loop.run_in_executor(None, get_claims)
+        logger.info("✓ Claim extractor loaded")
+        await loop.run_in_executor(None, get_searcher)
+        logger.info("✓ Evidence searcher loaded")
+        await loop.run_in_executor(None, get_scorer)
+        logger.info("✓ Evidence scorer loaded")
+        await loop.run_in_executor(None, get_decision)
+        logger.info("✓ Decision engine loaded")
+        return {"status": "warmup complete", "all_models_loaded": True}
+    except Exception as e:
+        logger.warning(f"Warmup partial failure: {e}")
+        return {"status": "warmup partial", "error": str(e)}
+
+
 @app.post("/analyze", response_model=AnalyzeResponse)
 async def analyze(req: AnalyzeRequest):
     rid  = str(uuid.uuid4())[:8]
