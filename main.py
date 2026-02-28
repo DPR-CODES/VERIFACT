@@ -134,14 +134,20 @@ class BERTEngine:
         try:
             from transformers import AutoTokenizer, AutoModelForSequenceClassification
             logger.info(f"Loading local BERT model: {BERT_MODEL_NAME}")
+            logger.info("Downloading tokenizer...")
             self.tokenizer = AutoTokenizer.from_pretrained(BERT_MODEL_NAME)
+            logger.info("Tokenizer downloaded ✓")
+            logger.info("Downloading model...")
             self.model     = AutoModelForSequenceClassification.from_pretrained(BERT_MODEL_NAME)
+            logger.info("Model downloaded ✓")
             self.model.eval()
             self.method = "local"
-            logger.info("✅ Local BERT loaded")
+            logger.info("✅ Local BERT model fully loaded and ready")
             return
         except Exception as e:
-            logger.warning(f"Local BERT failed: {e}")
+            logger.error(f"❌ Local BERT failed: {type(e).__name__}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
 
         # 2. HF Inference API
         if self.hf_key and self.hf_key not in ("", "xxxx"):
@@ -160,10 +166,10 @@ class BERTEngine:
                 logger.info("Using Gemini for BERT classification")
                 return
             except Exception as e:
-                logger.warning(f"Gemini BERT init failed: {e}")
+                logger.error(f"Gemini BERT init failed: {e}")
 
         # 4. Heuristic fallback
-        logger.warning("All BERT backends unavailable — using heuristic fallback")
+        logger.error("❌ All BERT backends unavailable — using heuristic fallback only")
         self.method = "fallback"
 
     def predict(self, text: str) -> dict:
@@ -721,14 +727,24 @@ _decision: Optional[DecisionEngine]   = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _bert, _claims, _searcher, _scorer, _decision
-    logger.info("🚀 Initializing VERIFACT…")
-    logger.info("Loading all components…")
-    _bert     = BERTEngine()
-    _claims   = ClaimExtractor()
-    _searcher = EvidenceSearcher()
-    _scorer   = EvidenceScorer()
-    _decision = DecisionEngine()
-    logger.info("✅ All components ready — VERIFACT is live")
+    try:
+        logger.info("🚀 Initializing VERIFACT…")
+        logger.info("Loading all components…")
+        _bert     = BERTEngine()
+        logger.info(f"✓ BERT engine initialized ({_bert.method})")
+        _claims   = ClaimExtractor()
+        logger.info("✓ Claim extractor initialized")
+        _searcher = EvidenceSearcher()
+        logger.info("✓ Evidence searcher initialized")
+        _scorer   = EvidenceScorer()
+        logger.info("✓ Evidence scorer initialized")
+        _decision = DecisionEngine()
+        logger.info("✓ Decision engine initialized")
+        logger.info("✅ All components ready — VERIFACT is live")
+    except Exception as e:
+        logger.error(f"❌ Initialization error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
     yield
     logger.info("Shutting down VERIFACT…")
 
@@ -763,28 +779,6 @@ async def health():
             "decision_engine":  _decision is not None,
         },
     }
-
-
-@app.get("/warmup")
-async def warmup():
-    """Pre-load all ML models to avoid timeout on first /analyze request."""
-    loop = asyncio.get_event_loop()
-    logger.info("Starting warmup - loading all models...")
-    try:
-        await loop.run_in_executor(None, get_bert)
-        logger.info("✓ BERT loaded")
-        await loop.run_in_executor(None, get_claims)
-        logger.info("✓ Claim extractor loaded")
-        await loop.run_in_executor(None, get_searcher)
-        logger.info("✓ Evidence searcher loaded")
-        await loop.run_in_executor(None, get_scorer)
-        logger.info("✓ Evidence scorer loaded")
-        await loop.run_in_executor(None, get_decision)
-        logger.info("✓ Decision engine loaded")
-        return {"status": "warmup complete", "all_models_loaded": True}
-    except Exception as e:
-        logger.warning(f"Warmup partial failure: {e}")
-        return {"status": "warmup partial", "error": str(e)}
 
 
 @app.post("/analyze", response_model=AnalyzeResponse)
