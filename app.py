@@ -17,8 +17,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DEFAULT_HOST = os.getenv("API_HOST", "localhost")
-DEFAULT_PORT = int(os.getenv("API_PORT", 8001))
+# Support both local development and remote deployment
+API_HOST = os.getenv("API_HOST", "localhost")
+API_PORT = int(os.getenv("API_PORT", 8001))
+API_URL = os.getenv("API_URL", f"http://{API_HOST}:{API_PORT}")
 
 st.set_page_config(
     page_title="VERIFACT",
@@ -481,7 +483,10 @@ def chart_credibility(evidence):
 # ── BACKEND HELPERS ───────────────────────────────────────────────────────────
 
 def get_base():
-    return f"http://{st.session_state.get('api_host', DEFAULT_HOST)}:{st.session_state.get('api_port', DEFAULT_PORT)}"
+    # Use API_URL if set (for production), otherwise build from host/port (for local dev)
+    if API_URL and "localhost" not in API_URL and "127.0.0.1" not in API_URL:
+        return API_URL
+    return f"http://{st.session_state.get('api_host', API_HOST)}:{st.session_state.get('api_port', API_PORT)}"
 
 
 def check_health():
@@ -527,7 +532,7 @@ def call_analyze(text, max_retries=3):
 # ── MAIN ─────────────────────────────────────────────────────────────────────
 
 def main():
-    for k, v in [("api_host", DEFAULT_HOST), ("api_port", DEFAULT_PORT),
+    for k, v in [("api_host", API_HOST), ("api_port", API_PORT),
                  ("text_input",""), ("last_result", None)]:
         if k not in st.session_state:
             st.session_state[k] = v
@@ -537,10 +542,14 @@ def main():
     # SIDEBAR
     with st.sidebar:
         st.markdown(f'<div style="font-family:\'Share Tech Mono\',monospace;font-size:0.68rem;color:{C["cyan"]};letter-spacing:0.2em;padding:0.4rem 0 0.7rem;">▸ BACKEND CONFIG</div>', unsafe_allow_html=True)
-        nh = st.text_input("HOST", value=st.session_state["api_host"])
-        np_ = st.number_input("PORT", value=st.session_state["api_port"], min_value=1, max_value=65535, step=1)
-        if nh != st.session_state["api_host"]:   st.session_state["api_host"] = nh
-        if int(np_) != st.session_state["api_port"]: st.session_state["api_port"] = int(np_)
+        # Only show HOST/PORT inputs in local development mode
+        if "localhost" in API_URL or "127.0.0.1" in API_URL:
+            nh = st.text_input("HOST", value=st.session_state["api_host"])
+            np_ = st.number_input("PORT", value=st.session_state["api_port"], min_value=1, max_value=65535, step=1)
+            if nh != st.session_state["api_host"]:   st.session_state["api_host"] = nh
+            if int(np_) != st.session_state["api_port"]: st.session_state["api_port"] = int(np_)
+        else:
+            st.markdown(f'<div style="font-family:\'Share Tech Mono\',monospace;font-size:0.75rem;color:{C["green"]};padding:0.5rem;border-left:2px solid {C["green"]};">✓ Connected to{API_URL.replace("https://","").replace("http://","")}</div>', unsafe_allow_html=True)
 
         is_ok, hmsg = check_health()
         render_backend_status(is_ok, hmsg)
