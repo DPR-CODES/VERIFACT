@@ -718,49 +718,17 @@ _scorer:   Optional[EvidenceScorer]   = None
 _decision: Optional[DecisionEngine]   = None
 
 
-def get_bert():
-    global _bert
-    if _bert is None:
-        logger.info("Loading BERT engine (lazy)...")
-        _bert = BERTEngine()
-    return _bert
-
-
-def get_claims():
-    global _claims
-    if _claims is None:
-        logger.info("Loading Claim extractor (lazy)...")
-        _claims = ClaimExtractor()
-    return _claims
-
-
-def get_searcher():
-    global _searcher
-    if _searcher is None:
-        logger.info("Loading Evidence searcher (lazy)...")
-        _searcher = EvidenceSearcher()
-    return _searcher
-
-
-def get_scorer():
-    global _scorer
-    if _scorer is None:
-        logger.info("Loading Evidence scorer (lazy)...")
-        _scorer = EvidenceScorer()
-    return _scorer
-
-
-def get_decision():
-    global _decision
-    if _decision is None:
-        logger.info("Loading Decision engine (lazy)...")
-        _decision = DecisionEngine()
-    return _decision
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("🚀 VERIFACT backend starting (models load on first request for memory efficiency)…")
+    global _bert, _claims, _searcher, _scorer, _decision
+    logger.info("🚀 Initializing VERIFACT…")
+    logger.info("Loading all components…")
+    _bert     = BERTEngine()
+    _claims   = ClaimExtractor()
+    _searcher = EvidenceSearcher()
+    _scorer   = EvidenceScorer()
+    _decision = DecisionEngine()
+    logger.info("✅ All components ready — VERIFACT is live")
     yield
     logger.info("Shutting down VERIFACT…")
 
@@ -828,24 +796,24 @@ async def analyze(req: AnalyzeRequest):
 
     try:
         # 1 — BERT
-        bert_result = await loop.run_in_executor(None, get_bert().predict, req.text)
+        bert_result = await loop.run_in_executor(None, _bert.predict, req.text)
         logger.info(f"[{rid}] BERT → {bert_result['label']} ({bert_result['confidence']:.2f})")
 
         # 2 — Claims
-        claims = await loop.run_in_executor(None, get_claims().extract, req.text)
+        claims = await loop.run_in_executor(None, _claims.extract, req.text)
         logger.info(f"[{rid}] Claims → {len(claims)}")
 
         # 3 — Evidence (concurrent)
         async def process(claim: str) -> dict:
-            articles = await loop.run_in_executor(None, lambda: get_searcher().search(claim, max_results=5))
-            scored   = await loop.run_in_executor(None, lambda: get_scorer().score(claim, articles))
+            articles = await loop.run_in_executor(None, lambda: _searcher.search(claim, max_results=5))
+            scored   = await loop.run_in_executor(None, lambda: _scorer.score(claim, articles))
             scored["claim"] = claim
             return scored
 
         evidence_results = list(await asyncio.gather(*[process(c) for c in claims])) if claims else []
 
         # 4 — Decision
-        decision = await loop.run_in_executor(None, lambda: get_decision().decide(bert_result, evidence_results))
+        decision = await loop.run_in_executor(None, lambda: _decision.decide(bert_result, evidence_results))
         logger.info(f"[{rid}] → {decision['label']} ({decision['final_score']:.3f})")
 
         ms = int((time.time() - t0) * 1000)

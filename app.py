@@ -502,19 +502,6 @@ def check_health():
         return False, "CONNECTION REFUSED — RUN: python main.py"
     except requests.exceptions.Timeout:
         return False, "HEALTH CHECK TIMEOUT"
-    except Exception as e:
-        return False, str(e)[:60]
-
-
-def warmup_backend():
-    """Preload ML models on first load to avoid timeout."""
-    try:
-        r = requests.get(f"{get_base()}/warmup", timeout=120)
-        if r.status_code == 200:
-            return True
-    except Exception as e:
-        pass
-    return False
 
 
 def call_analyze(text, max_retries=3):
@@ -544,14 +531,9 @@ def call_analyze(text, max_retries=3):
 
 def main():
     for k, v in [("api_host", API_HOST), ("api_port", API_PORT),
-                 ("text_input",""), ("last_result", None), ("warmed_up", False)]:
+                 ("text_input",""), ("last_result", None)]:
         if k not in st.session_state:
             st.session_state[k] = v
-
-    # Warmup backend on first load to preload ML models
-    if not st.session_state["warmed_up"]:
-        with st.spinner("⚡ First time initialization — preloading ML models (30–60s, happens once)…"):
-            st.session_state["warmed_up"] = warmup_backend()
 
     render_header()
 
